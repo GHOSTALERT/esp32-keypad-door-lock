@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = 'build/door_lock.ino.merged.bin'
+elf = 'build/door_lock.ino.elf'
