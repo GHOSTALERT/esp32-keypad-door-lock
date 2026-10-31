@@ -8,6 +8,7 @@ Its lock logic is plain C++, so the exact code that runs on the board also passe
 ![Tests](https://img.shields.io/badge/unit%20checks-52%20%2F%2052-2e7d32)
 ![Wokwi](https://img.shields.io/badge/simulate-Wokwi-6b21a8)
 ![Course](https://img.shields.io/badge/VIT-BECE204L%20Microcontrollers-1e3a8a)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 <p align="center">
   <img src="docs/images/prototype.png" alt="Breadboard prototype" height="360">
@@ -95,3 +96,7 @@ BECE204L Microprocessors and Microcontrollers, VIT Vellore, Winter Semester 2025
 |---|---|
 | Arrnav Trisal | 24BVD0064 |
 | Tarun Satish | 24BEC0631 |
+
+## License
+
+Released under the [MIT License](LICENSE).
