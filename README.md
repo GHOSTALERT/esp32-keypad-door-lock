@@ -1,107 +1,97 @@
 # Microcontroller-Based Digital Door Lock with Security Alert
 
-BECE204L Microprocessors and Microcontrollers project, Winter Semester 2025-26. Team: Arrnav Trisal (24BVD0064), Tarun Satish (24BEC0631).
+**An ESP32 keypad lock that fights back: four wrong codes and the keypad locks itself for 30 seconds, with an alarm and a countdown.**
+Its lock logic is plain C++, so the exact code that runs on the board also passes 52 unit tests on a PC.
 
-An ESP32 keypad lock. You type a password on a 4x4 keypad. If it is correct, a relay energises a 12 V solenoid lock for 5 seconds, the green LED lights and a success tone plays. A wrong password lights the red LED, sounds a warning tone and shows the attempts left on the OLED. Four wrong passwords in a row lock the keypad for 30 seconds, with a countdown on the display.
+![ESP32](https://img.shields.io/badge/ESP32-Arduino%20core%203.3-e7352c)
+![C++](https://img.shields.io/badge/C%2B%2B-host%20unit%20tests-00599c)
+![Tests](https://img.shields.io/badge/unit%20checks-52%20%2F%2052-2e7d32)
+![Wokwi](https://img.shields.io/badge/simulate-Wokwi-6b21a8)
+![Course](https://img.shields.io/badge/VIT-BECE204L%20Microcontrollers-1e3a8a)
 
-The submitted report is in [`report/Digital_Door_Lock_Report.pdf`](report/Digital_Door_Lock_Report.pdf).
+<p align="center">
+  <img src="docs/images/prototype.png" alt="Breadboard prototype" height="360">
+  &nbsp;
+  <img src="docs/images/state_machine.png" alt="Lock state machine" height="360">
+</p>
+<p align="center"><em>The working prototype (ESP32, 4×4 keypad, OLED, relay, 12 V solenoid) and the state machine it runs.</em></p>
 
-| System | Prototype |
+## What it does
+
+Type a code on the 4×4 keypad.
+
+- **Correct code:** a relay energises the 12 V solenoid for 5 seconds, the green LED lights and a success tone plays.
+- **Wrong code:** the red LED lights, a warning tone sounds and the OLED shows how many attempts are left.
+- **Four wrong codes in a row:** the keypad shuts out *all* input, including the correct code, for 30 seconds while an alarm sounds and the display counts down.
+
+## Engineering details that matter
+
+- **Testable by design.** The state machine ([`lock_logic.h`](firmware/door_lock/lock_logic.h)) makes no Arduino calls, so it compiles on a PC and is unit-tested there. The tests cover unlock and relock timing, attempts left, the lockout (the correct code is ignored during it), counter reset after success, `*`/`D`/length limits, and prefix or extended codes being rejected.
+- **Constant-time code check.** The comparison checks every character even after a mismatch, so the time it takes doesn't reveal how many digits were right.
+- **Survives the `millis()` wrap-around.** Timers use unsigned differences, so the lock keeps working after 49 days of uptime. This is tested.
+- **Never blocks.** The keypad is polled every 10 ms (~100 Hz), and buzzer tone patterns play without `delay()`, so the keypad and display stay responsive.
+
+## Results
+
+| Check | Result |
 |---|---|
-| ![System overview](docs/images/system_overview.png) | <img src="docs/images/prototype.png" width="260"> |
+| Bench test (report) | Correct code opened the solenoid for 5 s with "Access Granted"; wrong codes gave the red LED and warning tone; 4 failures disabled the keypad for 30 s |
+| Host unit tests (`make test`) | **52 checks, 0 failures** |
+| Firmware build (arduino-esp32 3.3.12) | Clean build: 320,351 B flash (24 %), 24,208 B RAM (7 %) |
+| Verification latency | Printed over Serial on every `#` (`verify: N us`); report target < 50 ms |
 
 ## Hardware
 
 | Part | Notes |
 |---|---|
 | ESP32 DevKit (ESP32-WROOM-32) | 3.3 V logic |
-| 4x4 membrane keypad | rows/cols on 8 GPIOs |
-| 0.96" SSD1306 OLED, 128x64, I2C | address 0x3C |
+| 4×4 membrane keypad | rows and columns on 8 GPIOs |
+| 0.96" SSD1306 OLED, 128×64, I²C | address 0x3C |
 | 1-channel 5 V relay module | switches the solenoid supply |
 | 12 V solenoid lock | separate 12 V supply through the relay's COM/NO |
-| Green and red LEDs + 220 Ω | access granted / denied |
-| Active or passive buzzer | driven with `tone()` |
+| Green and red LEDs + 220 Ω, buzzer | status and alarm |
 
-### Wiring
-
-| ESP32 GPIO | Connects to |
-|---|---|
-| 13, 12, 14, 27 | Keypad R1-R4 |
-| 26, 25, 33, 32 | Keypad C1-C4 |
-| 21 (SDA), 22 (SCL) | OLED SDA, SCL (VCC 3V3, GND) |
-| 4 | Relay IN (relay VCC 5V, GND) |
-| 18 | Green LED through 220 Ω |
-| 19 | Red LED through 220 Ω |
-| 23 | Buzzer + |
-
-The relay's COM and NO switch the 12 V line to the solenoid. Put a flyback diode across the solenoid. `RELAY_ON` in `config.h` is `HIGH`; set it to `LOW` for active-low relay boards.
-
-## How it works
+Pin-by-pin wiring is in [docs/HOW_TO_RUN.md](docs/HOW_TO_RUN.md#wiring).
 
 | Key | Action |
 |---|---|
-| `0`-`9` | Add a digit (shown as `*`, up to 8) |
+| `0`–`9` | Add a digit (shown as `*`, up to 8) |
 | `#` | Submit |
 | `*` | Clear |
 | `D` | Delete last digit |
 
-```
-ENTRY ──# correct──▶ UNLOCKED (relay on, green LED, 5 s countdown) ──▶ ENTRY
-  │
-  └──# wrong──▶ WRONG (red LED, "Attempts left: n", 1.5 s) ──▶ ENTRY
-         └── 4th wrong in a row ──▶ LOCKOUT (keypad ignored, 30 s countdown, alarm) ──▶ ENTRY
-```
+| Setting (`config.h`) | Value |
+|---|---|
+| `MAX_FAILED_ATTEMPTS` | 4 |
+| `LOCKOUT_MS` / `UNLOCK_MS` | 30000 / 5000 |
+| `SCAN_PERIOD_MS` | 10 |
+| `LOCK_PASSWORD` | `"2580"`: change before use |
 
-The state machine is in [`firmware/door_lock/lock_logic.h`](firmware/door_lock/lock_logic.h). It is plain C++ with no Arduino calls, so the exact code that runs on the ESP32 is also unit-tested on a PC. The password comparison checks every character even after a mismatch, so its timing doesn't reveal how many digits were right. Timers use unsigned `millis()` differences, so they survive the 49-day wrap-around. The keypad is polled every 10 ms (~100 Hz). The buzzer plays its tone patterns without blocking, so the keypad and display stay responsive.
-
-| Setting (`config.h`) | Value | Report |
-|---|---|---|
-| `MAX_FAILED_ATTEMPTS` | 4 | 4 attempts |
-| `LOCKOUT_MS` | 30000 | 30 s |
-| `UNLOCK_MS` | 5000 | 5 s |
-| `SCAN_PERIOD_MS` | 10 | ~100 Hz polling |
-| `LOCK_PASSWORD` | `"2580"` | change before use |
-
-## Build and test
-
-```bash
-cd ~/Downloads/doorLockProj
-
-# Host unit tests of the lock logic (g++ only)
-make test
-
-# Firmware: ESP32 core + libraries, once
-arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
-arduino-cli core update-index && arduino-cli core install esp32:esp32
-arduino-cli lib install Keypad "Adafruit SSD1306" "Adafruit GFX Library"
-
-make compile                      # -> build/door_lock.ino.bin, .merged.bin, .elf
-make upload PORT=/dev/ttyUSB0     # flash; open Serial Monitor at 115200 baud
-```
-
-Or open `firmware/door_lock/door_lock.ino` in the Arduino IDE, select **ESP32 Dev Module** and upload.
-
-### Simulate in Wokwi
-
-`diagram.json` wires the same circuit in [Wokwi](https://wokwi.com). A blue LED on the relay output stands in for the solenoid. With the Wokwi VS Code extension, run `make compile`, then **Wokwi: Start Simulator** (it reads `wokwi.toml`). On wokwi.com, create an ESP32 project, paste the sketch files, `diagram.json` and `libraries.txt`.
-
-## Results
-
-From the report's bench tests: the correct password opened the solenoid for 5 s and showed "Access Granted" with the success tone. Wrong passwords showed an error with the red LED and warning tone. After four wrong passwords the keypad was disabled for 30 s with a countdown.
-
-Rebuild checks:
-
-- `make test`: 52 checks, 0 failures. They cover the 5 s unlock and relock, attempts left, the 4-failure 30 s lockout (the correct password is ignored during it), the failure count resetting after a success, `*`/`D`/length limit, prefix and extension passwords being rejected, and `millis()` wrap-around.
-- `make compile` (arduino-esp32 3.3.12, ESP32 Dev Module): builds cleanly. The sketch uses 320,351 bytes (24 %) of flash and 24,208 bytes (7 %) of RAM.
-- On the board, every `#` prints the measured verification time over Serial (`verify: N us`). The report's target is under 50 ms.
-
-## Layout
+## Repository layout
 
 ```
 firmware/door_lock/   door_lock.ino (main loop, OLED screens), lock_logic.h (state machine),
                       buzzer.h (non-blocking tones), config.h (pins, password, timings)
 test/                 test_lock_logic.cpp (host unit tests)
-diagram.json, wokwi.toml, libraries.txt   Wokwi simulation
-docs/images/          system overview and prototype photo from the report
+diagram.json, wokwi.toml, libraries.txt   Wokwi simulation of the same circuit
+docs/                 HOW_TO_RUN.md, images/, make_state_diagram.py
 report/               submitted report (PDF)
+Makefile              make test / make compile / make upload
 ```
+
+## Building and flashing
+
+Unit tests, arduino-cli set-up, flashing, the Wokwi simulation and wiring: see **[docs/HOW_TO_RUN.md](docs/HOW_TO_RUN.md)**.
+
+## Report
+
+[`report/Digital_Door_Lock_Report.pdf`](report/Digital_Door_Lock_Report.pdf): the submitted report.
+
+## Team
+
+BECE204L Microprocessors and Microcontrollers, VIT Vellore, Winter Semester 2025–26.
+
+| Name | Reg. No. |
+|---|---|
+| Arrnav Trisal | 24BVD0064 |
+| Tarun Satish | 24BEC0631 |
